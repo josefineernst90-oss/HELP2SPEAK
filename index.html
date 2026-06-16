@@ -333,6 +333,10 @@
       <span class="switch"><input type="checkbox" id="dwellOn" checked><span class="sl"></span></span>
     </div>
     <div class="row">
+      <label>Ordner & Trainer nur per Mausklick öffnen</label>
+      <span class="switch"><input type="checkbox" id="manualEnter"><span class="sl"></span></span>
+    </div>
+    <div class="row">
       <label>Dwell-Zeit</label>
       <input type="range" id="dwellMs" min="1000" max="100000" step="500" value="3000">
       <span class="val" id="dwellVal"></span>
@@ -390,7 +394,7 @@
   ============================================================
 -->
 <script type="application/json" id="seedProfile">
-{}
+  {"tiles":[{"id":"omhgqpa","type":"action","label":"Ja","emoji":"✅","img":null},{"id":"t9szd3c","type":"action","label":"Nein","emoji":"❌","img":null},{"id":"zrke906","type":"action","label":"Biene","emoji":"🐝","img":null,"vibe":true}],"cfg":{"dwellOn":true,"dwellMs":2500,"coolMs":500,"sensitivity":15,"perRow":3,"vertical":false,"dim":true,"sound":true,"speak":true,"scanMs":1500,"targetId":null,"vibe":200},"words":[{"id":"l1nlb1b","type":"folder","label":"Ich & Leute","emoji":"👥","img":null,"subTiles":[{"id":"c8dd4a4","type":"action","label":"ich","emoji":null,"img":null},{"id":"iutwbon","type":"action","label":"du","emoji":null,"img":null},{"id":"htvv72f","type":"action","label":"wir","emoji":null,"img":null}]},{"id":"k8xkkya","type":"folder","label":"Wollen & Tun","emoji":"✋","img":null,"subTiles":[{"id":"frbrr4y","type":"action","label":"will","emoji":null,"img":null},{"id":"bzmlt0n","type":"action","label":"will nicht","emoji":null,"img":null},{"id":"3juap45","type":"action","label":"brauchen","emoji":null,"img":null},{"id":"w4ua7n1","type":"action","label":"haben","emoji":null,"img":null},{"id":"i013epo","type":"action","label":"gehen","emoji":null,"img":null},{"id":"y1exr80","type":"action","label":"kommen","emoji":null,"img":null},{"id":"yx10bpx","type":"action","label":"essen","emoji":null,"img":null},{"id":"qmk8lod","type":"action","label":"trinken","emoji":null,"img":null},{"id":"ejlgu2z","type":"action","label":"sehen","emoji":null,"img":null},{"id":"v4wdagc","type":"action","label":"schlafen","emoji":null,"img":null}]},{"id":"44dlsp9","type":"folder","label":"Wie's ist","emoji":"🌡️","img":null,"subTiles":[{"id":"3thu97c","type":"action","label":"gut","emoji":null,"img":null},{"id":"9ns9x87","type":"action","label":"schlecht","emoji":null,"img":null},{"id":"zmn7th4","type":"action","label":"mehr","emoji":null,"img":null},{"id":"jit3z9f","type":"action","label":"weniger","emoji":null,"img":null},{"id":"xt6wq7n","type":"action","label":"genug","emoji":null,"img":null},{"id":"i1pdane","type":"action","label":"müde","emoji":null,"img":null},{"id":"aq7zlsi","type":"action","label":"Angst","emoji":null,"img":null},{"id":"0eey3xy","type":"action","label":"Schmerz","emoji":null,"img":null}]},{"id":"8zb5h8t","type":"folder","label":"Wo & Wann","emoji":"📍","img":null,"subTiles":[{"id":"cesrz7i","type":"action","label":"hier","emoji":null,"img":null},{"id":"fl1k9fr","type":"action","label":"da","emoji":null,"img":null},{"id":"tbdvx4i","type":"action","label":"jetzt","emoji":null,"img":null},{"id":"shhrgnb","type":"action","label":"gleich","emoji":null,"img":null},{"id":"qkkbzna","type":"action","label":"später","emoji":null,"img":null},{"id":"zd7ioxf","type":"action","label":"oben","emoji":null,"img":null},{"id":"cyofvph","type":"action","label":"unten","emoji":null,"img":null}]},{"id":"m7jv1ah","type":"folder","label":"Kurz","emoji":"💬","img":null,"subTiles":[{"id":"7xyqkaq","type":"action","label":"ja","emoji":null,"img":null},{"id":"7n2stf7","type":"action","label":"nein","emoji":null,"img":null},{"id":"mf8ehax","type":"action","label":"bitte","emoji":null,"img":null},{"id":"nmzp61j","type":"action","label":"danke","emoji":null,"img":null},{"id":"3voj6pq","type":"action","label":"Hilfe","emoji":null,"img":null},{"id":"vb14imt","type":"action","label":"stopp","emoji":null,"img":null}]},{"id":"7npjq7n","type":"folder","label":"Dinge","emoji":"📦","img":null,"subTiles":[{"id":"t7dqc8x","type":"action","label":"Wasser","emoji":null,"img":null},{"id":"dfqcxgk","type":"action","label":"Decke","emoji":null,"img":null},{"id":"1t1cki1","type":"action","label":"Kissen","emoji":null,"img":null},{"id":"0whyml2","type":"action","label":"Licht","emoji":null,"img":null},{"id":"w15kmpw","type":"action","label":"Telefon","emoji":null,"img":null},{"id":"sv1ntda","type":"action","label":"Toilette","emoji":null,"img":null}]}]}
 </script>
 
 <script>
@@ -492,8 +496,9 @@ const DEFAULT_WORDS = [
 let wordBank = load(LS_WORDS, (SEED && SEED.words) ? SEED.words : DEFAULT_WORDS);
 
 const CFG_DEFAULTS = {
-  dwellOn: true, dwellMs: 2500, coolMs: 500, sensitivity: 15, perRow: 2, 
+  dwellOn: true, dwellMs: 2500, coolMs: 500, sensitivity: 15, perRow: 2,
   vertical: false, dim: true, sound: true, speak: true, scanMs: 1500, targetId: null, vibe: 200,
+  manualEnter: false,
 };
 let cfg = Object.assign({}, CFG_DEFAULTS, (SEED && SEED.cfg) ? SEED.cfg : {}, load(LS_CFG, {}));
 
@@ -512,15 +517,25 @@ const LS_PROFILES = "ks_profiles_v1";
 const LS_ACTIVE   = "ks_active_v1";
 const deepCopy = (o)=> JSON.parse(JSON.stringify(o));
 
+// Eigene Einstellungen für das Trainings-Profil.
+// Nur die Felder eintragen, die vom Standard (CFG_DEFAULTS) abweichen sollen –
+// alles, was hier nicht steht, bleibt beim normalen Standardwert.
+// Mögliche Felder: dwellOn, dwellMs, coolMs, sensitivity, scanMs, sound, speak, vibe …
+const TRAINING_CFG_OVERRIDES = {
+  // dwellMs: 4000,
+  // sensitivity: 12,
+  // vibe: 25,
+};
+
 function makeTrainingProfile(){
   return {
-    id: id(), name: "Training: Ja · Nein · Biene",
-    cfg: Object.assign({}, CFG_DEFAULTS),
+    id: id(), name: "Training",
+    cfg: Object.assign({}, CFG_DEFAULTS, TRAINING_CFG_OVERRIDES),
     words: deepCopy(DEFAULT_WORDS),
     tiles: [
-      { id:id(), type:"action", label:"Ja",    emoji:"✅", img:null },
-      { id:id(), type:"action", label:"Nein",  emoji:"❌", img:null },
-      { id:id(), type:"action", label:"Biene", emoji:"🐝", img:null, vibe:true },
+      { id:id(), type:"uebung", exercise:"gostop", label:"Ampel: Los & Stopp", emoji:"🚦", img:null },
+      { id:id(), type:"uebung", exercise:"ruhig",  label:"Ruhig halten",       emoji:"🧘", img:null },
+      { id:id(), type:"uebung", exercise:"bee",    label:"Biene fliegt",       emoji:"🐝", img:null, vibe:true },
     ],
   };
 }
@@ -574,7 +589,7 @@ function syncCfgUI(){
   const ck=(id,v)=>{ const e=$(id); if(e) e.checked=!!v; };
   const rg=(id,v)=>{ const e=$(id); if(e) e.value=v; };
   const tx=(id,t)=>{ const e=$(id); if(e) e.textContent=t; };
-  ck("#dwellOn",cfg.dwellOn); ck("#sound",cfg.sound); ck("#speak",cfg.speak);
+  ck("#dwellOn",cfg.dwellOn); ck("#manualEnter",cfg.manualEnter); ck("#sound",cfg.sound); ck("#speak",cfg.speak);
   rg("#dwellMs",cfg.dwellMs); rg("#coolMs",cfg.coolMs);
   rg("#sens",cfg.sensitivity); rg("#scanMs",cfg.scanMs); rg("#vibe",cfg.vibe);
   tx("#dwellVal",(cfg.dwellMs/1000).toFixed(1)+" s"); tx("#coolVal",cfg.coolMs+" ms");
@@ -743,7 +758,7 @@ function renderStage(){
     let extraStyle = "";
     if (t.type === "back") extraStyle = "background: var(--panel); border-style: dashed; opacity: 0.8;";
     if (t.type === "folder") extraStyle = "border-width: 6px; border-style: double;";
-    if (t.type === "uebung") extraStyle = "background: var(--panel); border-style: dashed; opacity: 0.8;";
+    if (t.type === "uebung") extraStyle = "border-style: dashed;";
 
     let art = t.img ? `<img src="${t.img}" alt="">` : (t.emoji || "");
     let labelHtml = escapeHtml(t.label||"");
@@ -764,7 +779,7 @@ function renderStage(){
     
     el.addEventListener("click", ()=>{
       if(inSentence){ setActive(gi, "tippen"); return; }   // im Satz-Modus nur fokussieren
-      if(gi === current){ select(); }                       // schon markiert -> auswählen (löst auch Vibration aus)
+      if(gi === current){ select(true); }                   // schon markiert -> auswählen (löst auch Vibration aus)
       else setActive(gi, "tippen");                         // sonst erst markieren
     });
     stage.appendChild(el);
@@ -841,11 +856,13 @@ function clearDwell(){
 }
 function updateRing(){ const fill=document.querySelector("#stage .tile.active .dwellfill"); if(fill) fill.style.boxShadow="inset 0 0 0 0 var(--accent-soft)"; }
 
-function select(){
+function select(viaClick){
   clearDwell();
   const displayTiles = getDisplayTiles();
   const chosen = displayTiles[current];
-  
+
+  if(cfg.manualEnter && !viaClick && (chosen.type==="folder" || chosen.type==="uebung")) return;   // erst per Klick öffnen
+
   if (chosen.type === "back") {
     currentFolderObj = navStack.pop() || null;
     currentLevel = currentFolderObj ? currentFolderObj.subTiles : tiles;
@@ -854,7 +871,7 @@ function select(){
     updateLayoutUI(); renderTileList(); renderStage(); updateTrialPill();
     return;
   }
-  
+
   if (chosen.type === "folder") {
     beep(1046, 120);
     navStack.push(currentFolderObj);
@@ -1282,8 +1299,8 @@ $("#importProfileInput").onchange = (e) => {
         currentFolderObj = null;
         currentLevel = tiles;
         current = 0;
-        
-        updateLayoutUI();
+
+        syncCfgUI();
         renderStage();
         renderTileList();
         updateTrialPill();
@@ -1333,8 +1350,8 @@ function ladeFesteVorlage(profilDaten) {
       currentFolderObj = null;
       currentLevel = tiles;
       current = 0;
-      
-      updateLayoutUI();
+
+      syncCfgUI();
       renderStage();
       renderTileList();
       updateTrialPill();
@@ -1386,6 +1403,7 @@ function bindLayoutRange(idStr,valStr,key,suffix,after){
 }
 
 bindGlobalToggle("#dwellOn","dwellOn", ()=>startDwell());
+bindGlobalToggle("#manualEnter","manualEnter");
 bindGlobalToggle("#sound","sound");
 bindGlobalToggle("#speak","speak");
 (function(){ const s=$("#dwellMs"), v=$("#dwellVal"); if(s){ s.value=cfg.dwellMs; const u=()=>{ v.textContent=(cfg.dwellMs/1000).toFixed(1)+" s"; }; u(); s.oninput=()=>{ cfg.dwellMs=+s.value; u(); save(); }; } })();
