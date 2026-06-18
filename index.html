@@ -253,6 +253,8 @@
     <h3>Profil</h3>
     <div class="row">
       <select id="profileSelect" style="flex:1; padding:8px; background:var(--bg); border:1px solid var(--line); color:var(--txt); border-radius:6px; font-size:15px;"></select>
+      <button class="btn" id="profileUp" title="Nach oben" style="padding:8px 12px;">↑</button>
+      <button class="btn" id="profileDown" title="Nach unten" style="padding:8px 12px;">↓</button>
     </div>
     <div class="row">
       <input type="text" id="profileName" placeholder="Profilname eingeben…" style="flex:1; padding:8px; background:var(--bg); border:1px solid var(--line); color:var(--txt); border-radius:6px; font-size:15px;">
@@ -1329,7 +1331,8 @@ $("#importProfileBtn").onclick = () => $("#importProfileInput").click();
 $("#cfgToAllBtn").onclick = () => {
   if(!confirm(`Aktuelle Einstellungen (Regler & Schalter) auf alle ${profiles.length} Profile übertragen?\nKacheln und Wortbank bleiben unberührt.`)) return;
   save();  // aktuellen Stand sichern, damit cfg aktuell ist
-  profiles.forEach(p => { p.cfg = Object.assign({}, cfg); });
+  const { perRow, vertical, dim, targetId, ...sharedCfg } = cfg;
+  profiles.forEach(p => { p.cfg = Object.assign({}, p.cfg, sharedCfg); });
   persist();
   setProfileMsg("Einstellungen auf alle Profile übertragen.");
 };
@@ -1422,6 +1425,18 @@ $("#profileNew") && ($("#profileNew").onclick = addProfile);
 $("#profileRename") && ($("#profileRename").onclick = renameProfile);
 $("#profileDup") && ($("#profileDup").onclick = duplicateProfile);
 $("#profileDelete") && ($("#profileDelete").onclick = deleteProfile);
+
+function moveProfile(dir){
+  const idx = profiles.findIndex(p => p.id === activeId);
+  const newIdx = idx + dir;
+  if(newIdx < 0 || newIdx >= profiles.length) return;
+  const tmp = profiles[idx]; profiles[idx] = profiles[newIdx]; profiles[newIdx] = tmp;
+  persist();
+  renderProfileBar();
+  setProfileMsg(dir < 0 ? "Profil nach oben verschoben." : "Profil nach unten verschoben.");
+}
+$("#profileUp")   && ($("#profileUp").onclick   = () => moveProfile(-1));
+$("#profileDown") && ($("#profileDown").onclick = () => moveProfile(1));
 renderProfileBar();
 /* ============================================================
    Einstellungen verkabeln (Globale + Ordnerspezifische)
