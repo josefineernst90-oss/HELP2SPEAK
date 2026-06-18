@@ -76,12 +76,13 @@
     font-size: clamp(calc(60px * var(--tile-fscale)), calc(16vw * var(--tile-fscale)), calc(180px * var(--tile-fscale)));
     line-height: 1;
   }
-  .tile .art img {
+  .tile .art img:not(.emoji) {
     max-width: 100%;
-    max-height: 100%; 
+    max-height: 100%;
     object-fit: contain;
     display: block;
   }
+  img.emoji { display: inline !important; height: 1em; width: 1em; vertical-align: -0.1em; }
   .tile .label{
     font-size: clamp(calc(22px * var(--tile-fscale)), calc(4.5vw * var(--tile-fscale)), calc(52px * var(--tile-fscale)));
     font-weight: 800;
@@ -1530,6 +1531,21 @@ window.addEventListener("keydown",e=>{
 
 // Trainer-Vorrecht: jeder Pointer-Klick (Maus/Touch) des Trainers setzt den Sperr-Timestamp.
 document.addEventListener("pointerdown", ()=>{ lastPointerTs = now(); });
+
+// Twemoji: einheitliche Emoji auf allen Geräten (benötigt Internetverbindung).
+(function(){
+  const s = document.createElement("script");
+  s.src = "https://cdn.jsdelivr.net/npm/twemoji@14.0.2/dist/twemoji.min.js";
+  s.crossOrigin = "anonymous";
+  s.onload = () => {
+    const parse = (node) => twemoji.parse(node, { folder:"svg", ext:".svg" });
+    parse(document.body);
+    new MutationObserver(mutations => {
+      mutations.forEach(m => m.addedNodes.forEach(n => { if(n.nodeType===1) parse(n); }));
+    }).observe(document.body, { childList:true, subtree:true });
+  };
+  document.head.appendChild(s);
+})();
 
 /* Dwell-Steuerung Patienten-Suche */
 function setSearchActive(idx) {
