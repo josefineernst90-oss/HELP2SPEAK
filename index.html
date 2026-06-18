@@ -45,13 +45,17 @@
   .btn:hover{border-color:var(--accent)}
   .btn.primary{background:var(--accent);color:#1a1500;border-color:var(--accent);font-weight:600}
   .btn.danger{border-color:#5a2a2a;color:#ff9d9d}
+  button:disabled,.btn:disabled{opacity:.38;cursor:default;pointer-events:none}
 
   /* ---------- Kachel-Bühne ---------- */
+  :root{ --tile-fscale: 1; }
   #stage{
     position:fixed; inset:52px 0 0 0;
     display:flex; gap:clamp(14px,3vw,40px);
     padding:clamp(14px,3vw,40px); align-items:stretch; justify-content:center;
+    transition: opacity 1.5s ease;
   }
+  body.paused #stage{ opacity: 0.08; }
   #stage.vertical{flex-direction:column}
   .tile{
     flex:1 1 0; min-width:0; min-height:0;
@@ -69,7 +73,7 @@
     align-items: center; 
     justify-content: center;
     overflow: hidden;
-    font-size: clamp(60px,16vw,180px); 
+    font-size: clamp(calc(60px * var(--tile-fscale)), calc(16vw * var(--tile-fscale)), calc(180px * var(--tile-fscale)));
     line-height: 1;
   }
   .tile .art img {
@@ -79,7 +83,7 @@
     display: block;
   }
   .tile .label{
-    font-size: clamp(22px, 4.5vw, 52px);
+    font-size: clamp(calc(22px * var(--tile-fscale)), calc(4.5vw * var(--tile-fscale)), calc(52px * var(--tile-fscale)));
     font-weight: 800;
     text-align: center;
     line-height: 1.1;
@@ -87,7 +91,7 @@
     word-break: break-word;
   }
   .tile .wordlabel{
-    font-size: clamp(28px, 8vw, 72px);
+    font-size: clamp(calc(28px * var(--tile-fscale)), calc(8vw * var(--tile-fscale)), calc(72px * var(--tile-fscale)));
     font-weight: 800;
     text-align: center;
     line-height: 1.1;
@@ -191,6 +195,7 @@
   <span id="battery" class="status" title="Akku der Biene" style="display:none"></span>
   <select id="profileSelectTop" title="Profil wechseln" autocomplete="off" style="flex:0 1 auto; max-width:42vw; padding:5px 6px; font-size:12px; background:var(--bg); border:1px solid var(--line); color:var(--txt); border-radius:5px;"></select>
   <span class="spacer"></span>
+  <button class="btn" id="calibrateBtn" disabled title="Sensor kalibrieren (Ruheposition 2 s einmessen)">🎯 Kalibrieren</button>
   <button class="btn primary" id="connectBtn">Verbinden</button>
   <button class="icon" id="fsBtn" title="Vollbild">⛶</button>
   <button class="icon" id="gearBtn" title="Trainer-Menü">⚙</button>
@@ -263,6 +268,12 @@
     <div id="tilePathDisplay" style="font-weight: bold; color: var(--txt); padding: 8px 12px; background: var(--bg); border-radius: 8px; border: 1px solid var(--line);">Pfad: Hauptmenü</div>
     <div id="backToRootContainer" style="margin-top: 8px;"></div>
     
+    <div class="row">
+      <label>Kachel-/Schriftgröße</label>
+      <input type="range" id="tileScale" min="50" max="150" step="5">
+      <span class="val" id="tileScaleVal"></span>
+    </div>
+
     <div class="hint">Layout nur für diese Ebene:</div>
     <div class="row">
      <label>Kacheln pro Zeile</label>
@@ -339,6 +350,15 @@
     <div class="row">
       <label>Trainer-Vorrecht (Klick pausiert Sensor 3 s)</label>
       <span class="switch"><input type="checkbox" id="trainerPriority"><span class="sl"></span></span>
+    </div>
+    <div class="row">
+      <label>Pause-Modus (Dimmen bei Inaktivität)</label>
+      <span class="switch"><input type="checkbox" id="autoPause"><span class="sl"></span></span>
+    </div>
+    <div class="row">
+      <label>Inaktivität bis Dimmen</label>
+      <input type="range" id="pauseAfterMs" min="5000" max="300000" step="5000">
+      <span class="val" id="pauseAfterVal"></span>
     </div>
     <div class="row">
       <label>Dwell-Zeit</label>
@@ -502,7 +522,8 @@ let wordBank = load(LS_WORDS, (SEED && SEED.words) ? SEED.words : DEFAULT_WORDS)
 const CFG_DEFAULTS = {
   dwellOn: true, dwellMs: 2500, coolMs: 500, sensitivity: 15, perRow: 2,
   vertical: false, dim: true, sound: true, speak: true, scanMs: 1500, targetId: null, vibe: 200,
-  manualEnter: false, trainerPriority: true,
+  manualEnter: false, trainerPriority: false,
+  autoPause: false, pauseAfterMs: 30000, tileScale: 100,
 };
 let cfg = Object.assign({}, CFG_DEFAULTS, (SEED && SEED.cfg) ? SEED.cfg : {}, load(LS_CFG, {}));
 
@@ -593,7 +614,10 @@ function syncCfgUI(){
   const ck=(id,v)=>{ const e=$(id); if(e) e.checked=!!v; };
   const rg=(id,v)=>{ const e=$(id); if(e) e.value=v; };
   const tx=(id,t)=>{ const e=$(id); if(e) e.textContent=t; };
-  ck("#dwellOn",cfg.dwellOn); ck("#manualEnter",cfg.manualEnter); ck("#trainerPriority",cfg.trainerPriority); ck("#sound",cfg.sound); ck("#speak",cfg.speak);
+  ck("#dwellOn",cfg.dwellOn); ck("#manualEnter",cfg.manualEnter); ck("#trainerPriority",cfg.trainerPriority); ck("#autoPause",cfg.autoPause); ck("#sound",cfg.sound); ck("#speak",cfg.speak);
+  rg("#pauseAfterMs",cfg.pauseAfterMs); rg("#tileScale",cfg.tileScale);
+  tx("#pauseAfterVal", Math.round(cfg.pauseAfterMs/1000)+" s"); tx("#tileScaleVal", cfg.tileScale+"%");
+  applyTileScale();
   rg("#dwellMs",cfg.dwellMs); rg("#coolMs",cfg.coolMs);
   rg("#sens",cfg.sensitivity); rg("#scanMs",cfg.scanMs); rg("#vibe",cfg.vibe);
   tx("#dwellVal",(cfg.dwellMs/1000).toFixed(1)+" s"); tx("#coolVal",cfg.coolMs+" ms");
@@ -674,7 +698,10 @@ let current = 0;
 let dispLevel = 0;               
 let lastMotionTs = 0;
 let lastPointerTs = 0;
-const TRAINER_PAUSE_MS = 3000;            
+const TRAINER_PAUSE_MS = 3000;
+let sensorBaseline = 0;
+let calibSamples = null;
+let lastActivityTs = Date.now();            
 let dwellTimer = null, dwellRAF = null, dwellStart = 0;
 let logEntries = [];
 let trialStart = null;           
@@ -948,11 +975,15 @@ async function connectGatt(){
   setStatus("Verbunden", true); beep(523,120);
 }
 function onNotify(ev){
-  const v = ev.target.value.getUint8(0); 
-  feedLevel(v); 
+  const raw = ev.target.value.getUint8(0);
+  if(calibSamples){ calibSamples.push(raw); return; }  // während Kalibrierung nur sammeln
+  const v = Math.max(0, raw - sensorBaseline);
+  feedLevel(v);
+  lastActivityTs = now();
+  if(document.body.classList.contains("paused")) document.body.classList.remove("paused");
   if(inExercise){ exerciseFeed(v); return; }
   if(inSentence){ if(v >= cfg.sensitivity) sentenceTrigger(); return; }
-  if(v >= cfg.sensitivity) onMotion("ble"); 
+  if(v >= cfg.sensitivity) onMotion("ble");
 }
 function onDisconnect(){
   showBattery(null);
@@ -967,6 +998,9 @@ function onDisconnect(){
 }
 function setStatus(txt, ok){
   $("#status").textContent = txt; $("#dot").classList.toggle("on", !!ok);
+  const cb = $("#connectBtn"), cal = $("#calibrateBtn");
+  if(cb) cb.disabled = !!ok;
+  if(cal) cal.disabled = !ok;
 }
 function showBattery(pct){
   const el = $("#battery"); if(!el) return;
@@ -1006,7 +1040,7 @@ function log(type, tile, extra){
 }
 function renderLog(){
   const lines = logEntries.slice(-200).map(e=>{
-    const ts = new Date(e.ts).toLocaleTimeString("de-DE");
+    const ts = new Date(e.ts).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"});
     if(e.type==="select"){
       let tag = e.correct===true?" ✓richtig":e.correct===false?" ✗falsch":"";
       let t = e.ms!=null?`  ${(e.ms/1000).toFixed(1)}s`:"";
@@ -1437,6 +1471,46 @@ $("#gearBtn").onclick=()=>{ $("#overlay").classList.add("show"); updateLayoutUI(
 $("#closePanel").onclick=()=>{ $("#overlay").classList.remove("show"); startDwell(); };
 $("#connectBtn").onclick=connect;
 tryAutoConnect();
+
+// Kalibrierung
+$("#calibrateBtn").onclick=()=>{
+  const btn = $("#calibrateBtn");
+  btn.disabled = true; btn.textContent = "⏳ 2 s…";
+  calibSamples = [];
+  setTimeout(()=>{
+    const s = calibSamples; calibSamples = null;
+    if(s.length > 0){
+      sensorBaseline = Math.round(s.reduce((a,b)=>a+b,0)/s.length);
+      btn.textContent = "✓ Basis: "+sensorBaseline;
+    } else {
+      btn.textContent = "🎯 Kalibrieren";
+    }
+    btn.disabled = false;
+    setTimeout(()=>{ btn.textContent = "🎯 Kalibrieren"; }, 3000);
+  }, 2000);
+};
+
+// Tile-Skalierung
+function applyTileScale(){ document.documentElement.style.setProperty("--tile-fscale", (cfg.tileScale/100).toFixed(2)); }
+applyTileScale();
+(function(){ const s=$("#pauseAfterMs"), v=$("#pauseAfterVal"); if(!s) return;
+  s.value=cfg.pauseAfterMs;
+  const upd=()=>{ v.textContent=Math.round(cfg.pauseAfterMs/1000)+" s"; }; upd();
+  s.oninput=()=>{ cfg.pauseAfterMs=+s.value; upd(); save(); };
+})();
+(function(){
+  const s=$("#tileScale"), v=$("#tileScaleVal"); if(!s) return;
+  s.value=cfg.tileScale;
+  const upd=()=>{ v.textContent=cfg.tileScale+"%"; applyTileScale(); };
+  upd(); s.oninput=()=>{ cfg.tileScale=+s.value; upd(); save(); };
+})();
+bindGlobalToggle("#autoPause","autoPause");
+
+// Pause-Modus: alle 5 s prüfen ob Inaktivitäts-Schwelle überschritten
+setInterval(()=>{
+  if(!cfg.autoPause) return;
+  if(now() - lastActivityTs > cfg.pauseAfterMs) document.body.classList.add("paused");
+}, 5000);
 $("#fsBtn").onclick=()=>{ if(!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); };
 
 window.addEventListener("keydown",e=>{
