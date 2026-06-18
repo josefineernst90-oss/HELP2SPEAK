@@ -385,6 +385,9 @@
       <button class="btn" id="importProfileBtn" style="flex:1">Profil aus Datei importieren</button>
       <input type="file" id="importProfileInput" accept=".json" hidden>
     </div>
+    <div class="row">
+      <button class="btn" id="cfgToAllBtn" style="flex:1">Einstellungen auf alle Profile übertragen</button>
+    </div>
     <div class="hint">Export/Import sichert das aktuelle Profil (Kacheln, Bilder, Audios, Einstellungen) als Datei. Profile werden in der Top-Bar umgeschaltet.</div>
 
     <h3>Sitzungs-Log</h3>
@@ -1321,6 +1324,14 @@ $("#exportProfileBtn").onclick = () => {
 };
 
 $("#importProfileBtn").onclick = () => $("#importProfileInput").click();
+
+$("#cfgToAllBtn").onclick = () => {
+  if(!confirm(`Aktuelle Einstellungen (Regler & Schalter) auf alle ${profiles.length} Profile übertragen?\nKacheln und Wortbank bleiben unberührt.`)) return;
+  save();  // aktuellen Stand sichern, damit cfg aktuell ist
+  profiles.forEach(p => { p.cfg = Object.assign({}, cfg); });
+  persist();
+  setProfileMsg("Einstellungen auf alle Profile übertragen.");
+};
 
 $("#importProfileInput").onchange = (e) => {
   const file = e.target.files[0];
