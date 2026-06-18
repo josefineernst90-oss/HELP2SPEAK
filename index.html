@@ -324,7 +324,7 @@
     </div>
     <div class="row">
       <label>Empfindlichkeit (Schwelle)</label>
-      <input type="range" id="sens" min="5" max="80" step="1">
+      <input type="range" id="sens" min="5" max="200" step="1">
       <span class="val" id="sensVal"></span>
     </div>
     <div class="level"><div class="fill" id="lvlFill"></div><div class="mark" id="lvlMark"></div></div>
@@ -335,6 +335,10 @@
     <div class="row">
       <label>Ordner & Trainer nur per Mausklick öffnen</label>
       <span class="switch"><input type="checkbox" id="manualEnter"><span class="sl"></span></span>
+    </div>
+    <div class="row">
+      <label>Trainer-Vorrecht (Klick pausiert Sensor 3 s)</label>
+      <span class="switch"><input type="checkbox" id="trainerPriority"><span class="sl"></span></span>
     </div>
     <div class="row">
       <label>Dwell-Zeit</label>
@@ -498,7 +502,7 @@ let wordBank = load(LS_WORDS, (SEED && SEED.words) ? SEED.words : DEFAULT_WORDS)
 const CFG_DEFAULTS = {
   dwellOn: true, dwellMs: 2500, coolMs: 500, sensitivity: 15, perRow: 2,
   vertical: false, dim: true, sound: true, speak: true, scanMs: 1500, targetId: null, vibe: 200,
-  manualEnter: false,
+  manualEnter: false, trainerPriority: true,
 };
 let cfg = Object.assign({}, CFG_DEFAULTS, (SEED && SEED.cfg) ? SEED.cfg : {}, load(LS_CFG, {}));
 
@@ -589,7 +593,7 @@ function syncCfgUI(){
   const ck=(id,v)=>{ const e=$(id); if(e) e.checked=!!v; };
   const rg=(id,v)=>{ const e=$(id); if(e) e.value=v; };
   const tx=(id,t)=>{ const e=$(id); if(e) e.textContent=t; };
-  ck("#dwellOn",cfg.dwellOn); ck("#manualEnter",cfg.manualEnter); ck("#sound",cfg.sound); ck("#speak",cfg.speak);
+  ck("#dwellOn",cfg.dwellOn); ck("#manualEnter",cfg.manualEnter); ck("#trainerPriority",cfg.trainerPriority); ck("#sound",cfg.sound); ck("#speak",cfg.speak);
   rg("#dwellMs",cfg.dwellMs); rg("#coolMs",cfg.coolMs);
   rg("#sens",cfg.sensitivity); rg("#scanMs",cfg.scanMs); rg("#vibe",cfg.vibe);
   tx("#dwellVal",(cfg.dwellMs/1000).toFixed(1)+" s"); tx("#coolVal",cfg.coolMs+" ms");
@@ -668,7 +672,9 @@ function deleteProfile(){
 
 let current = 0;
 let dispLevel = 0;               
-let lastMotionTs = 0;            
+let lastMotionTs = 0;
+let lastPointerTs = 0;
+const TRAINER_PAUSE_MS = 3000;            
 let dwellTimer = null, dwellRAF = null, dwellStart = 0;
 let logEntries = [];
 let trialStart = null;           
@@ -816,9 +822,10 @@ function setActive(i, reason){
 }
 
 function onMotion(reason){
-  if(speaking) return; 
+  if(speaking) return;
+  if(cfg.trainerPriority && (now() - lastPointerTs) < TRAINER_PAUSE_MS) return;
   const t = now();
-  if(t - lastMotionTs < cfg.coolMs) return; 
+  if(t - lastMotionTs < cfg.coolMs) return;
   lastMotionTs = t;
   beep(660, 70);
 
@@ -838,7 +845,7 @@ function startDwell(){
   clearDwell();
   const tile = document.querySelector("#stage .tile.active");
   const fill = tile ? tile.querySelector(".dwellfill") : null;
-  if(inSentence || !cfg.dwellOn){ if(fill) fill.style.boxShadow = "inset 0 0 0 0 var(--accent-soft)"; return; }
+  if(inSentence || !cfg.dwellOn || (cfg.trainerPriority && (now() - lastPointerTs) < TRAINER_PAUSE_MS)){ if(fill) fill.style.boxShadow = "inset 0 0 0 0 var(--accent-soft)"; return; }
   dwellStart = performance.now();
   const maxSpread = tile ? Math.max(tile.offsetWidth, tile.offsetHeight) : 220;
   const tick = ()=>{
@@ -1404,6 +1411,7 @@ function bindLayoutRange(idStr,valStr,key,suffix,after){
 
 bindGlobalToggle("#dwellOn","dwellOn", ()=>startDwell());
 bindGlobalToggle("#manualEnter","manualEnter");
+bindGlobalToggle("#trainerPriority","trainerPriority");
 bindGlobalToggle("#sound","sound");
 bindGlobalToggle("#speak","speak");
 (function(){ const s=$("#dwellMs"), v=$("#dwellVal"); if(s){ s.value=cfg.dwellMs; const u=()=>{ v.textContent=(cfg.dwellMs/1000).toFixed(1)+" s"; }; u(); s.oninput=()=>{ cfg.dwellMs=+s.value; u(); save(); }; } })();
@@ -1414,7 +1422,7 @@ bindLayoutToggle("#vertical","vertical", renderStage);
 bindLayoutToggle("#dim","dim", renderStage);
 
 const sensEl=$("#sens"), sensV=$("#sensVal"), lvlMark=$("#lvlMark"), lvlFill=$("#lvlFill");
-function updSens(){ sensV.textContent=(cfg.sensitivity/100).toFixed(2)+" g"; if(lvlMark) lvlMark.style.left = Math.min(100,cfg.sensitivity)+"%"; }
+function updSens(){ sensV.textContent=(cfg.sensitivity/100).toFixed(2)+" g"; if(lvlMark) lvlMark.style.left = (cfg.sensitivity/200*100).toFixed(1)+"%"; }
 sensEl.value=cfg.sensitivity; updSens();
 sensEl.oninput=()=>{ cfg.sensitivity=+sensEl.value; updSens(); save(); };
 function feedLevel(v){ dispLevel = Math.max(dispLevel, Math.min(100, v)); }
@@ -1434,6 +1442,9 @@ $("#fsBtn").onclick=()=>{ if(!document.fullscreenElement) document.documentEleme
 window.addEventListener("keydown",e=>{
   if(e.code==="Space" && !/input|textarea/i.test(e.target.tagName)){ e.preventDefault(); feedLevel(60); if(inExercise) exerciseFeed(60); else if(inSentence) sentenceTrigger(); else onMotion("taste"); }
 });
+
+// Trainer-Vorrecht: jeder Pointer-Klick (Maus/Touch) des Trainers setzt den Sperr-Timestamp.
+document.addEventListener("pointerdown", ()=>{ lastPointerTs = now(); });
 
 /* Dwell-Steuerung Patienten-Suche */
 function setSearchActive(idx) {
