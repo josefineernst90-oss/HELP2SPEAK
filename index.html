@@ -1809,9 +1809,9 @@ const BEE_FRIC   = 0.84;
 const CATCH_DIST = 70;
 
 function beeTransform(dir, extra){
-  // dir=1 → nach rechts → scaleX(-1); dir=-1 → nach links → scaleX(1)
-  const mx = dir === 1 ? "scaleX(-1)" : "scaleX(1)";
-  return `translate(-50%,-50%) ${mx}${extra || ""}`;
+  // Twemoji-Biene zeigt nach oben → 90° drehen damit sie in Flugrichtung schaut
+  const rot = dir === 1 ? "rotate(90deg)" : "rotate(-90deg)";
+  return `translate(-50%,-50%) ${rot}${extra || ""}`;
 }
 function beeStartPos(dir){ return dir === 1 ? BEE_MARGIN : window.innerWidth - BEE_MARGIN; }
 function beeFlowerPos(dir){ return dir === 1 ? window.innerWidth - BEE_MARGIN : BEE_MARGIN; }
