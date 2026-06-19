@@ -169,6 +169,7 @@
   .mini.delAudio{border-color:var(--bad); color:var(--bad);}
   .mini.rec{background:var(--bad);border-color:var(--bad);color:#fff;animation:recpulse 1s infinite}
   @keyframes recpulse{50%{opacity:.55}}
+  @keyframes stromGlow{50%{opacity:.4}}
 
   .log{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;max-height:200px;overflow:auto;white-space:pre-wrap}
   .hint{font-size:12px;color:var(--muted);margin:6px 0}
@@ -1778,9 +1779,7 @@ function exerciseFeed(v){
     return;
   }
   if(exPhase === "strom"){
-    if(v >= cfg.sensitivity){
-      stromVel = Math.min(stromVel + 10, 28);   // Impuls, max 28 px/frame
-    }
+    if(v >= cfg.sensitivity) stromAdvance();
     return;
   }
   if(v >= cfg.sensitivity) exLastMove = now();
@@ -1974,31 +1973,29 @@ function beeStop(){
 }
 /* 🐝 Ende */
 /* ============================================================
-   🔌 Elektriker-Spiel (Stromkreis schließen)
-   Eingabe wie bei der Biene: Bewegung = Impuls, Reibung bremst,
-   Stecker fliegt zur Steckdose. ABER: nur EIN Ziel (logisch
-   korrekt – Stecker rein, fertig). Danach übernimmt eine
-   automatische Animation: der Strom läuft sichtbar durch die
-   Leitung und zündet die Lampen nacheinander – kein Input nötig,
-   reines Zuschauen. Danach neue Leitung, Stecker zurück an Start.
+   🔌 Elektriker-Spiel ("Lichterkette anschließen")
+   Bewusst ANDERE Mechanik als die Biene: keine Physik, kein
+   Flug, kein Timing. Stecker steckt von Anfang an in der Dose
+   (Strom liegt an). Jede erkannte Bewegung verbindet sofort die
+   nächste Lampe der Kette – direkte Ursache-Wirkung, keine
+   Übung in Genauigkeit/Steuerung nötig. Das passt eher zu
+   "Cause & Effect"-Switch-Spielen als zu Timing-Spielen wie
+   die Biene. Sind alle Lampen an: gemeinsames Aufblitzen als
+   Feier, dann erlischt die Kette und es geht von vorn los.
    ============================================================ */
 const STROM_MARGIN     = 60;
-const STROM_FRIC       = 0.84;
-const STROM_CATCH_DIST = 70;
 const STROM_LAMP_COUNT = 8;
-const STROM_LAMP_DELAY = 180;   // ms zwischen den Lampen beim Fließen
 
-let stromX = 0, stromVel = 0, stromLamps = [], stromCircuits = 0, stromFlowing = false;
-
-function stromSocketX(){ return window.innerWidth - STROM_MARGIN; }
+let stromLamps = [], stromStep = 0, stromCircuits = 0,
+    stromFlowing = false, stromLastStepTs = 0;
 
 function stromBuildLamps(){
-  const margin  = STROM_MARGIN;
-  const socketX = stromSocketX();
-  const spacing = (socketX - margin) / (STROM_LAMP_COUNT + 1);
+  const socketX = STROM_MARGIN;
+  const endX    = window.innerWidth - STROM_MARGIN;
+  const spacing = (endX - socketX) / STROM_LAMP_COUNT;
   stromLamps = [];
   for(let i=0;i<STROM_LAMP_COUNT;i++){
-    stromLamps.push(margin + spacing*(i+1));
+    stromLamps.push(socketX + spacing*(i+1));
   }
 }
 
@@ -2006,7 +2003,7 @@ function stromStart(){
   exClearTimers();
   exPhase = "strom";
   stromBuildLamps();
-  stromX = STROM_MARGIN; stromVel = 0; stromCircuits = 0; stromFlowing = false;
+  stromStep = 0; stromCircuits = 0; stromFlowing = false; stromLastStepTs = 0;
 
   $("#exOverlay").style.background = "#1a1530";
   $("#exBig").style.display = "none";
@@ -2014,7 +2011,7 @@ function stromStart(){
 
   const field = $("#exField");
   field.innerHTML = "";
-  const socketX = stromSocketX();
+  const socketX = STROM_MARGIN;
 
   // Punkte-Anzeige oben mittig: geschlossene Stromkreise
   const scoreEl = document.createElement("div");
@@ -2027,7 +2024,7 @@ function stromStart(){
   scoreEl.textContent = "⚡ 0";
   field.appendChild(scoreEl);
 
-  // Empfindlichkeitsregler unten (wie bei der Biene)
+  // Empfindlichkeitsregler unten (gleiche Bewegungsschwelle wie überall)
   let stromSens = cfg.sensitivity;
   const sensBar = document.createElement("div");
   sensBar.style.cssText = [
@@ -2047,27 +2044,39 @@ function stromStart(){
     if(sl) sl.oninput = ()=>{ stromSens = +sl.value; vl.textContent = stromSens; cfg.sensitivity = stromSens; save(); };
   }, 0);
 
-  // Leitung (graue Basis-Linie)
+  // Leitung (Linie)
   const wire = document.createElement("div");
   wire.style.cssText = [
-    "position:absolute","top:50%","left:"+STROM_MARGIN+"px",
-    "width:"+(socketX - STROM_MARGIN)+"px","height:6px",
+    "position:absolute","top:50%","left:"+socketX+"px",
+    "width:"+(window.innerWidth - socketX - STROM_MARGIN)+"px","height:6px",
     "transform:translateY(-50%)","background:#3a3a3a","border-radius:3px","z-index:1"
   ].join(";");
   field.appendChild(wire);
 
-  // Fließender Strom (füllt sich beim Andocken von links nach rechts)
-  const flow = document.createElement("div");
-  flow.id = "stromFlow";
-  flow.style.cssText = [
-    "position:absolute","top:50%","left:"+STROM_MARGIN+"px",
-    "width:0px","height:6px","transform:translateY(-50%)",
-    "background:linear-gradient(90deg,#ffcc33,#ffe27a)","border-radius:3px",
-    "box-shadow:0 0 10px #ffcc33","z-index:1","transition:none"
+  // Steckdose – Stecker ist von Anfang an drin, Strom liegt an
+  const socket = document.createElement("div");
+  socket.style.cssText = [
+    "position:absolute","top:50%","left:"+socketX+"px",
+    "width:60px","height:60px","transform:translate(-50%,-50%)",
+    "background:#ececec","border-radius:10px",
+    "box-shadow:inset 0 2px 6px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.4)",
+    "display:flex","align-items:center","justify-content:center","gap:8px","z-index:2"
   ].join(";");
-  field.appendChild(flow);
+  socket.innerHTML =
+    `<span style="display:block;width:7px;height:22px;background:#333;border-radius:2px;"></span>` +
+    `<span style="display:block;width:7px;height:22px;background:#333;border-radius:2px;"></span>`;
+  field.appendChild(socket);
 
-  // Lampen
+  const spark = document.createElement("div");
+  spark.style.cssText = [
+    "position:absolute","top:50%","left:"+socketX+"px",
+    "transform:translate(-50%,-130%)","font-size:22px",
+    "animation:stromGlow 1.4s ease-in-out infinite","z-index:2","pointer-events:none"
+  ].join(";");
+  spark.textContent = "⚡";
+  field.appendChild(spark);
+
+  // Lampen der Lichterkette (zunächst dunkel)
   stromLamps.forEach((x,i)=>{
     const lamp = document.createElement("div");
     lamp.id = "stromLamp"+i;
@@ -2081,125 +2090,63 @@ function stromStart(){
     lamp.textContent = "💡";
     field.appendChild(lamp);
   });
-
-  // Steckdose (rein in CSS gezeichnet, Ziel rechts)
-  const socket = document.createElement("div");
-  socket.id = "stromSocket";
-  socket.style.cssText = [
-    "position:absolute","top:50%","left:"+socketX+"px",
-    "width:60px","height:60px","transform:translate(-50%,-50%)",
-    "background:#ececec","border-radius:10px",
-    "box-shadow:inset 0 2px 6px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.4)",
-    "display:flex","align-items:center","justify-content:center","gap:8px","z-index:2"
-  ].join(";");
-  socket.innerHTML =
-    `<span style="display:block;width:7px;height:22px;background:#333;border-radius:2px;"></span>` +
-    `<span style="display:block;width:7px;height:22px;background:#333;border-radius:2px;"></span>`;
-  field.appendChild(socket);
-
-  // Stecker
-  const plug = document.createElement("div");
-  plug.id = "stromPlug";
-  plug.style.cssText = [
-    "position:absolute","top:50%","left:"+STROM_MARGIN+"px",
-    "font-size:clamp(50px,12vw,100px)","line-height:1",
-    "transform:translate(-50%,-50%) scale(1)",
-    "pointer-events:none","z-index:3","transition:none"
-  ].join(";");
-  plug.textContent = "🔌";
-  field.appendChild(plug);
-
-  stromLoop();
 }
 
-function stromLoop(){
-  if(!stromFlowing){
-    stromVel *= STROM_FRIC;
-    stromX += stromVel;
-    const socketX = stromSocketX();
-    stromX = Math.min(socketX, stromX);
+function stromAdvance(){
+  if(stromFlowing) return;                          // während Feier/Reset blockieren
+  const t = now();
+  if(t - stromLastStepTs < cfg.coolMs) return;       // 1 Bewegung = 1 Lampe, keine Mehrfachzündung
+  stromLastStepTs = t;
 
-    const plug = document.getElementById("stromPlug");
-    if(!plug){ return; }
-    plug.style.left = stromX + "px";
+  const i = stromStep;
+  if(i >= STROM_LAMP_COUNT) return;
 
-    // 🎯 Steckdose erreicht?
-    if(stromX >= socketX - STROM_CATCH_DIST){
-      stromDock();
-    }
-  }
-  exRAF = requestAnimationFrame(stromLoop);
-}
-
-function stromDock(){
-  stromFlowing = true; stromVel = 0;
-  const socketX = stromSocketX();
-
-  // Stecker einrasten
-  const plug = document.getElementById("stromPlug");
-  if(plug){
-    plug.style.transition = "left .12s ease, transform .15s ease";
-    plug.style.left = socketX + "px";
-    plug.style.transform = "translate(-50%,-50%) scale(1.2)";
-    setTimeout(()=>{ if(plug) plug.style.transform = "translate(-50%,-50%) scale(1)"; }, 150);
-  }
-  beep(300,90);
-  triggerVibe();
-
-  // Strom-Füllbalken animieren (synchron zur Lampenkette)
-  const flowDuration = 250 + (STROM_LAMP_COUNT-1)*STROM_LAMP_DELAY + 150;
-  const flow = document.getElementById("stromFlow");
-  if(flow){
-    flow.style.transition = "width " + flowDuration + "ms linear";
-    requestAnimationFrame(()=>{ if(flow) flow.style.width = (socketX - STROM_MARGIN) + "px"; });
-  }
-
-  // Lampen nacheinander zünden – reines Zuschauen, kein Input
-  stromLamps.forEach((x,i)=>{
-    setTimeout(()=> stromLightLamp(i), 250 + i*STROM_LAMP_DELAY);
-  });
-
-  const totalDelay = 250 + (STROM_LAMP_COUNT-1)*STROM_LAMP_DELAY + 300;
-  setTimeout(stromCircuitDone, totalDelay);
-}
-
-function stromLightLamp(i){
-  if(exPhase !== "strom") return;
   const lampEl = document.getElementById("stromLamp"+i);
-  if(!lampEl) return;
-  lampEl.style.opacity   = "1";
-  lampEl.style.filter    = "grayscale(0) drop-shadow(0 0 14px #ffe27a)";
-  lampEl.style.transform = "translate(-50%,-50%) scale(1.3)";
-  setTimeout(()=>{ if(lampEl) lampEl.style.transform = "translate(-50%,-50%) scale(1)"; }, 180);
-  beep(500 + i*45, 80);
+  if(lampEl){
+    lampEl.style.opacity   = "1";
+    lampEl.style.filter    = "grayscale(0) drop-shadow(0 0 14px #ffe27a)";
+    lampEl.style.transform = "translate(-50%,-50%) scale(1.35)";
+    setTimeout(()=>{ if(lampEl) lampEl.style.transform = "translate(-50%,-50%) scale(1)"; }, 180);
+  }
+  beep(500 + i*45, 90);
+  triggerVibe();
+  stromStep++;
+
+  if(stromStep >= STROM_LAMP_COUNT) stromCircuitDone();
 }
 
 function stromCircuitDone(){
-  if(exPhase !== "strom") return;
+  stromFlowing = true;
   stromCircuits++;
   const scoreEl = document.getElementById("stromScoreEl");
   if(scoreEl) scoreEl.textContent = "⚡ " + stromCircuits;
+
+  // Gemeinsames Aufblitzen aller Lampen als Feier
+  let pulses = 0;
+  const pulse = ()=>{
+    if(exPhase !== "strom") return;
+    for(let i=0;i<STROM_LAMP_COUNT;i++){
+      const l = document.getElementById("stromLamp"+i);
+      if(l) l.style.transform = (pulses%2===0) ? "translate(-50%,-50%) scale(1.4)" : "translate(-50%,-50%) scale(1)";
+    }
+    pulses++;
+    if(pulses<4) setTimeout(pulse,160);
+  };
+  pulse();
+
   beep(880,140); setTimeout(()=>beep(1175,160),150); setTimeout(()=>beep(1480,220),320);
   triggerVibe();
 
-  setTimeout(stromReset, 900);
+  setTimeout(stromReset, 1300);
 }
 
 function stromReset(){
   if(exPhase !== "strom") return;
-  stromLamps.forEach((x,i)=>{
+  for(let i=0;i<STROM_LAMP_COUNT;i++){
     const l = document.getElementById("stromLamp"+i);
     if(l){ l.style.opacity=".3"; l.style.filter="grayscale(1)"; l.style.transform="translate(-50%,-50%) scale(1)"; }
-  });
-  const flow = document.getElementById("stromFlow");
-  if(flow){ flow.style.transition="none"; flow.style.width="0px"; }
-  const plug = document.getElementById("stromPlug");
-  if(plug){
-    plug.style.transition = "left .4s ease, transform .2s ease";
-    plug.style.left = STROM_MARGIN + "px";
-    setTimeout(()=>{ if(plug) plug.style.transition = "none"; }, 420);
   }
-  stromX = STROM_MARGIN; stromVel = 0;
+  stromStep = 0;
   stromFlowing = false;
 }
 
