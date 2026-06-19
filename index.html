@@ -1777,6 +1777,12 @@ function exerciseFeed(v){
     }
     return;
   }
+  if(exPhase === "strom"){
+    if(v >= cfg.sensitivity){
+      stromVel = Math.min(stromVel + 10, 28);   // Impuls, max 28 px/frame
+    }
+    return;
+  }
   if(v >= cfg.sensitivity) exLastMove = now();
 }
 
@@ -1808,6 +1814,14 @@ const EXERCISES = {
     summary: (r) => {
       const score = r[0]?.value || 0;
       return `<div style="font-size:clamp(28px,6vw,56px);font-weight:800;margin-bottom:10px;">🌸 ${score} Blumen</div>`;
+    }
+  },
+  strom: {
+    label: "Stromkreis schließen", emoji: "🔌", rounds: 1,
+    run: () => stromStart(),
+    summary: (r) => {
+      const total = r[0]?.value || 0;
+      return `<div style="font-size:clamp(28px,6vw,56px);font-weight:800;margin-bottom:10px;">⚡ ${total} Stromkreis${total===1?"":"e"} geschlossen</div>`;
     }
   },
   
@@ -1852,7 +1866,7 @@ function beeStart(){
   scoreEl.style.cssText = [
     "position:absolute","top:18px","left:50%","transform:translateX(-50%)",
     "font-size:clamp(28px,6vw,56px)","font-weight:900","color:#fff",
-    "text-shadow:0 2px 12px rgba(0,0,0,.6)","pointer-events:none","z-index:2"
+    "filter:drop-shadow(0 2px 8px rgba(0,0,0,.6))","pointer-events:none","z-index:2"
   ].join(";");
   scoreEl.textContent = "🌸 0";
   field.appendChild(scoreEl);
@@ -1959,6 +1973,243 @@ function beeStop(){
   exResults.push({ ok:true, value:beeScore });
 }
 /* 🐝 Ende */
+/* ============================================================
+   🔌 Elektriker-Spiel (Stromkreis schließen)
+   Eingabe wie bei der Biene: Bewegung = Impuls, Reibung bremst,
+   Stecker fliegt zur Steckdose. ABER: nur EIN Ziel (logisch
+   korrekt – Stecker rein, fertig). Danach übernimmt eine
+   automatische Animation: der Strom läuft sichtbar durch die
+   Leitung und zündet die Lampen nacheinander – kein Input nötig,
+   reines Zuschauen. Danach neue Leitung, Stecker zurück an Start.
+   ============================================================ */
+const STROM_MARGIN     = 60;
+const STROM_FRIC       = 0.84;
+const STROM_CATCH_DIST = 70;
+const STROM_LAMP_COUNT = 8;
+const STROM_LAMP_DELAY = 180;   // ms zwischen den Lampen beim Fließen
+
+let stromX = 0, stromVel = 0, stromLamps = [], stromCircuits = 0, stromFlowing = false;
+
+function stromSocketX(){ return window.innerWidth - STROM_MARGIN; }
+
+function stromBuildLamps(){
+  const margin  = STROM_MARGIN;
+  const socketX = stromSocketX();
+  const spacing = (socketX - margin) / (STROM_LAMP_COUNT + 1);
+  stromLamps = [];
+  for(let i=0;i<STROM_LAMP_COUNT;i++){
+    stromLamps.push(margin + spacing*(i+1));
+  }
+}
+
+function stromStart(){
+  exClearTimers();
+  exPhase = "strom";
+  stromBuildLamps();
+  stromX = STROM_MARGIN; stromVel = 0; stromCircuits = 0; stromFlowing = false;
+
+  $("#exOverlay").style.background = "#1a1530";
+  $("#exBig").style.display = "none";
+  const sm = $("#exSmall"); if(sm) sm.style.display = "none";
+
+  const field = $("#exField");
+  field.innerHTML = "";
+  const socketX = stromSocketX();
+
+  // Punkte-Anzeige oben mittig: geschlossene Stromkreise
+  const scoreEl = document.createElement("div");
+  scoreEl.id = "stromScoreEl";
+  scoreEl.style.cssText = [
+    "position:absolute","top:18px","left:50%","transform:translateX(-50%)",
+    "font-size:clamp(28px,6vw,56px)","font-weight:900","color:#fff",
+    "filter:drop-shadow(0 2px 8px rgba(0,0,0,.6))","pointer-events:none","z-index:4"
+  ].join(";");
+  scoreEl.textContent = "⚡ 0";
+  field.appendChild(scoreEl);
+
+  // Empfindlichkeitsregler unten (wie bei der Biene)
+  let stromSens = cfg.sensitivity;
+  const sensBar = document.createElement("div");
+  sensBar.style.cssText = [
+    "position:absolute","bottom:22px","left:50%","transform:translateX(-50%)",
+    "display:flex","align-items:center","gap:10px","z-index:10",
+    "background:rgba(0,0,0,.45)","border-radius:12px","padding:8px 16px"
+  ].join(";");
+  sensBar.innerHTML = `
+    <span style="color:#fff;font-size:14px;white-space:nowrap">Empfindlichkeit</span>
+    <input id="stromSensSlider" type="range" min="3" max="80" step="1" value="${stromSens}"
+      style="width:140px;accent-color:#ffcc33">
+    <span id="stromSensVal" style="color:#ffcc33;font-size:14px;min-width:28px">${stromSens}</span>`;
+  field.appendChild(sensBar);
+  setTimeout(()=>{
+    const sl = document.getElementById("stromSensSlider");
+    const vl = document.getElementById("stromSensVal");
+    if(sl) sl.oninput = ()=>{ stromSens = +sl.value; vl.textContent = stromSens; cfg.sensitivity = stromSens; save(); };
+  }, 0);
+
+  // Leitung (graue Basis-Linie)
+  const wire = document.createElement("div");
+  wire.style.cssText = [
+    "position:absolute","top:50%","left:"+STROM_MARGIN+"px",
+    "width:"+(socketX - STROM_MARGIN)+"px","height:6px",
+    "transform:translateY(-50%)","background:#3a3a3a","border-radius:3px","z-index:1"
+  ].join(";");
+  field.appendChild(wire);
+
+  // Fließender Strom (füllt sich beim Andocken von links nach rechts)
+  const flow = document.createElement("div");
+  flow.id = "stromFlow";
+  flow.style.cssText = [
+    "position:absolute","top:50%","left:"+STROM_MARGIN+"px",
+    "width:0px","height:6px","transform:translateY(-50%)",
+    "background:linear-gradient(90deg,#ffcc33,#ffe27a)","border-radius:3px",
+    "box-shadow:0 0 10px #ffcc33","z-index:1","transition:none"
+  ].join(";");
+  field.appendChild(flow);
+
+  // Lampen
+  stromLamps.forEach((x,i)=>{
+    const lamp = document.createElement("div");
+    lamp.id = "stromLamp"+i;
+    lamp.style.cssText = [
+      "position:absolute","top:50%","left:"+x+"px",
+      "font-size:clamp(32px,7vw,64px)","line-height:1",
+      "transform:translate(-50%,-50%) scale(1)",
+      "opacity:.3","filter:grayscale(1)",
+      "transition:transform .18s ease","pointer-events:none","z-index:2"
+    ].join(";");
+    lamp.textContent = "💡";
+    field.appendChild(lamp);
+  });
+
+  // Steckdose (rein in CSS gezeichnet, Ziel rechts)
+  const socket = document.createElement("div");
+  socket.id = "stromSocket";
+  socket.style.cssText = [
+    "position:absolute","top:50%","left:"+socketX+"px",
+    "width:60px","height:60px","transform:translate(-50%,-50%)",
+    "background:#ececec","border-radius:10px",
+    "box-shadow:inset 0 2px 6px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.4)",
+    "display:flex","align-items:center","justify-content:center","gap:8px","z-index:2"
+  ].join(";");
+  socket.innerHTML =
+    `<span style="display:block;width:7px;height:22px;background:#333;border-radius:2px;"></span>` +
+    `<span style="display:block;width:7px;height:22px;background:#333;border-radius:2px;"></span>`;
+  field.appendChild(socket);
+
+  // Stecker
+  const plug = document.createElement("div");
+  plug.id = "stromPlug";
+  plug.style.cssText = [
+    "position:absolute","top:50%","left:"+STROM_MARGIN+"px",
+    "font-size:clamp(50px,12vw,100px)","line-height:1",
+    "transform:translate(-50%,-50%) scale(1)",
+    "pointer-events:none","z-index:3","transition:none"
+  ].join(";");
+  plug.textContent = "🔌";
+  field.appendChild(plug);
+
+  stromLoop();
+}
+
+function stromLoop(){
+  if(!stromFlowing){
+    stromVel *= STROM_FRIC;
+    stromX += stromVel;
+    const socketX = stromSocketX();
+    stromX = Math.min(socketX, stromX);
+
+    const plug = document.getElementById("stromPlug");
+    if(!plug){ return; }
+    plug.style.left = stromX + "px";
+
+    // 🎯 Steckdose erreicht?
+    if(stromX >= socketX - STROM_CATCH_DIST){
+      stromDock();
+    }
+  }
+  exRAF = requestAnimationFrame(stromLoop);
+}
+
+function stromDock(){
+  stromFlowing = true; stromVel = 0;
+  const socketX = stromSocketX();
+
+  // Stecker einrasten
+  const plug = document.getElementById("stromPlug");
+  if(plug){
+    plug.style.transition = "left .12s ease, transform .15s ease";
+    plug.style.left = socketX + "px";
+    plug.style.transform = "translate(-50%,-50%) scale(1.2)";
+    setTimeout(()=>{ if(plug) plug.style.transform = "translate(-50%,-50%) scale(1)"; }, 150);
+  }
+  beep(300,90);
+  triggerVibe();
+
+  // Strom-Füllbalken animieren (synchron zur Lampenkette)
+  const flowDuration = 250 + (STROM_LAMP_COUNT-1)*STROM_LAMP_DELAY + 150;
+  const flow = document.getElementById("stromFlow");
+  if(flow){
+    flow.style.transition = "width " + flowDuration + "ms linear";
+    requestAnimationFrame(()=>{ if(flow) flow.style.width = (socketX - STROM_MARGIN) + "px"; });
+  }
+
+  // Lampen nacheinander zünden – reines Zuschauen, kein Input
+  stromLamps.forEach((x,i)=>{
+    setTimeout(()=> stromLightLamp(i), 250 + i*STROM_LAMP_DELAY);
+  });
+
+  const totalDelay = 250 + (STROM_LAMP_COUNT-1)*STROM_LAMP_DELAY + 300;
+  setTimeout(stromCircuitDone, totalDelay);
+}
+
+function stromLightLamp(i){
+  if(exPhase !== "strom") return;
+  const lampEl = document.getElementById("stromLamp"+i);
+  if(!lampEl) return;
+  lampEl.style.opacity   = "1";
+  lampEl.style.filter    = "grayscale(0) drop-shadow(0 0 14px #ffe27a)";
+  lampEl.style.transform = "translate(-50%,-50%) scale(1.3)";
+  setTimeout(()=>{ if(lampEl) lampEl.style.transform = "translate(-50%,-50%) scale(1)"; }, 180);
+  beep(500 + i*45, 80);
+}
+
+function stromCircuitDone(){
+  if(exPhase !== "strom") return;
+  stromCircuits++;
+  const scoreEl = document.getElementById("stromScoreEl");
+  if(scoreEl) scoreEl.textContent = "⚡ " + stromCircuits;
+  beep(880,140); setTimeout(()=>beep(1175,160),150); setTimeout(()=>beep(1480,220),320);
+  triggerVibe();
+
+  setTimeout(stromReset, 900);
+}
+
+function stromReset(){
+  if(exPhase !== "strom") return;
+  stromLamps.forEach((x,i)=>{
+    const l = document.getElementById("stromLamp"+i);
+    if(l){ l.style.opacity=".3"; l.style.filter="grayscale(1)"; l.style.transform="translate(-50%,-50%) scale(1)"; }
+  });
+  const flow = document.getElementById("stromFlow");
+  if(flow){ flow.style.transition="none"; flow.style.width="0px"; }
+  const plug = document.getElementById("stromPlug");
+  if(plug){
+    plug.style.transition = "left .4s ease, transform .2s ease";
+    plug.style.left = STROM_MARGIN + "px";
+    setTimeout(()=>{ if(plug) plug.style.transition = "none"; }, 420);
+  }
+  stromX = STROM_MARGIN; stromVel = 0;
+  stromFlowing = false;
+}
+
+function stromStop(){
+  const f = $("#exField"); if(f) f.innerHTML = "";
+  const big = $("#exBig"); if(big) big.style.display = "";
+  const sm  = $("#exSmall"); if(sm) sm.style.display = "";
+  exResults.push({ ok:true, value: stromCircuits });
+}
+/* 🔌 Ende */
 function renderExerciseLib(){
   const box = $("#exerciseLib"); if(!box) return;
   box.innerHTML = "";
@@ -2049,6 +2300,7 @@ function exFinish(){
 function closeExercise(){
   exClearTimers();
   if(exPhase === "bee") beeStop();
+  if(exPhase === "strom") stromStop();
   inExercise = false; exPhase = "idle";
   $("#exOverlay").style.display = "none";
   $("#exSummary").style.display = "none";
